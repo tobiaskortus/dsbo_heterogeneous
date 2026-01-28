@@ -1,18 +1,9 @@
-from dask_jobqueue.local import LocalJob, LocalCluster
-from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
-
+import os
 import dask
 import math
-import re
-import copy
-import tempfile
-import os
-import warnings
-
-from distributed import Client
-from distributed.deploy.spec import SpecCluster
 from distributed.scheduler import Scheduler
-
+from distributed.deploy.spec import SpecCluster
+from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
 
 class HeterogeneousJobQueueCluster(JobQueueCluster):
     __doc__ = """ Deploy Dask on a Job queuing system
@@ -146,11 +137,6 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 opts = dict(self._job_kwargs or {})
                 if job_opts:
                     opts.update(job_opts)
-                # Translate 'resources' dict into worker CLI args so that the
-                # underlying Job/worker process advertises resources to Dask.
-                # dask-jobqueue Job classes don't accept a 'resources' kwarg,
-                # but they accept 'worker_extra_args' which are appended to the
-                # worker command. Convert resources -> ['--resources', 'k=v', ...].
                 if "resources" in opts:
                     resources = opts.pop("resources") or {}
                     extra = list(opts.get("worker_extra_args") or [])
@@ -166,16 +152,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                         opts["config_name"] = getattr(self.job_cls, "config_name", None)
                 workers[type_name] = {"cls": self.job_cls, "options": opts}
 
-            # Initialize SpecCluster directly with heterogeneous workers to
-            # avoid calling JobQueueCluster.__init__ which expects single-job
-            # semantics and would treat our `workers`/`scheduler` kwargs as
-            # job kwargs (causing duplicate 'scheduler' entries).
-            # Choose a stable cluster name (avoid collisions with spec keys).
             cluster_name = name if name is not None else f"jobqueue-{os.getpid()}"
 
-            # Initialize SpecCluster with an empty `workers` mapping so that
-            # the per-type templates in `workers` are kept only in
-            # `_spec_workers` and do not create placeholder worker names.
             SpecCluster.__init__(
                 self,
                 scheduler=scheduler,
@@ -186,18 +164,14 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 asynchronous=asynchronous,
                 name=cluster_name,
             )
-            # Ensure the internal name matches our chosen name (avoid any
-            # accidental overrides inside SpecCluster or elsewhere).
+
             try:
                 self._name = cluster_name
             except Exception:
                 pass
 
-            # Keep common job kwargs for compatibility with other methods
             self._job_kwargs = job_kwargs
 
-            # Keep a template of per-spec worker templates for dict-based scaling
-            # {type_name: {'cls': cls, 'options': opts, 'group': ...}}
             self._spec_workers = {}
             for k, v in (workers or {}).items():
                 entry = {"cls": v["cls"], "options": dict(v.get("options", {}))}
@@ -205,11 +179,9 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                     entry["group"] = list(v["group"])
                 self._spec_workers[k] = entry
 
-            # Per-type counters for deterministic instance numbering
             self._type_counters = {k: 0 for k in self._spec_workers}
 
             if n_workers:
-                # For heterogeneous scaling, allow dict-based scale calls
                 if isinstance(n_workers, dict):
                     self.scale(n_workers)
                 else:
@@ -314,53 +286,3 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             self._type_counters = {}
         self._type_counters.setdefault(type_name, 0)
         self.loop.add_callback(self._correct_state)
-
-
-
-class HeterogeneousLocalCluster(HeterogeneousJobQueueCluster):
-    job_cls = LocalJob
-
-    def __init__(self, spec, n_workers=0, loop=None, security=None, shared_temp_directory=None,
-                 silence_logs="error", name=None, asynchronous=False, scheduler_options=None,
-                 scheduler_cls=Scheduler, **kwargs):
-        super().__init__(
-            n_workers=n_workers,
-            job_cls=self.job_cls,
-            spec=spec,
-            loop=loop,
-            security=security,
-            shared_temp_directory=shared_temp_directory,
-            silence_logs=silence_logs,
-            name=name,
-            asynchronous=asynchronous,
-            scheduler_options=scheduler_options,
-            scheduler_cls=scheduler_cls,
-            **kwargs,
-        )
-
-
-spec = {
-    "small": {"cores": 1, "memory": "1GB", "processes": 1, "resources": {"small": 1}},
-    "big": {"cores": 4, "memory": "1GB", "processes": 2, "resources": {"big": 1}},
-}
-
-import time
-if __name__ == "__main__":
-    cluster = HeterogeneousLocalCluster(spec=spec, n_workers=0)
-    cluster.add_worker("xlarge", {"cores": 2, "memory": "1GB", "processes": 1, "resources": {"xlarge": 1}})
-    cluster.scale({"small": 1, "big": 1, "xlarge": 5})
-
-    print("dashboard:", getattr(cluster, "dashboard_link", None))
-
-    with Client(cluster, timeout=5) as client:
-        def y(x):
-            from dask.distributed import get_worker
-            worker = get_worker()
-            return (x, worker.name)
-
-        # Submit using Dask resources (must match worker `resources` mapping)
-        res = client.submit(y, 42, resources={"xlarge": 1}).result()
-        print(res)
-        time.sleep(1000)
-        
-
