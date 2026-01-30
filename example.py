@@ -1,4 +1,4 @@
-from dask_heterogeneous.local import HeterogeneousLocalCluster
+from dask_heterogeneous.slurm import HeterogeneousSlurmCluster
 from dask.distributed import Client
 
 spec = {
@@ -6,9 +6,13 @@ spec = {
     "big": {"cores": 4, "memory": "1GB", "processes": 2, "resources": {"big": 1}},
 }
 
+
+def get_ressources_key(spec_config: dict, name: str) -> dict:
+    return spec_config[name]["resources"]
+
 import time
 if __name__ == "__main__":
-    cluster = HeterogeneousLocalCluster(spec=spec, n_workers=0)
+    cluster = HeterogeneousSlurmCluster(spec=spec, n_workers=0)
     cluster.add_worker("xlarge", {"cores": 2, "memory": "1GB", "processes": 1, "resources": {"xlarge": 1}})
     cluster.scale({"small": 1, "big": 1, "xlarge": 5})
 
@@ -21,8 +25,10 @@ if __name__ == "__main__":
             return (x, worker.name)
 
         # Submit using Dask resources (must match worker `resources` mapping)
-        res = client.submit(y, 42, resources={"xlarge": 1}).result()
+        res = client.submit(y, 42, resources=get_ressources_key(spec, "big")).result()
         print(res)
         time.sleep(1000)
         
+
+
 
