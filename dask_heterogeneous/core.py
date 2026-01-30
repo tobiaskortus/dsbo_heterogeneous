@@ -138,14 +138,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 opts = dict(self._job_kwargs or {})
                 if job_opts:
                     opts.update(job_opts)
-                if "resources" in opts:
-                    resources = opts.pop("resources") or {}
-                    extra = list(opts.get("worker_extra_args") or [])
-                    for k, v in (resources.items() if isinstance(resources, dict) else []):
-                        extra.extend(["--resources", f"{k}={v}"])
-                    if extra:
-                        opts["worker_extra_args"] = extra
-                # ensure a config_name exists for Job classes that require it
+
+                self._resources_to_worker_extra_args(opts)
                 if "config_name" not in opts:
                     try:
                         opts["config_name"] = self.job_cls.default_config_name()
@@ -236,9 +230,40 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 return
 
         if n is not None:
-            jobs = int(math.ceil(n / self._dummy_job.worker_processes))
+            if hasattr(self, "_spec_workers") and self._spec_workers:
+                desired_procs = int(n)
 
-        return super().scale(jobs, memory=memory, cores=cores)
+                scale_dict = {}
+                for wtype, template in self._spec_workers.items():
+                    opts = template.get("options", {}) or {}
+                    worker_processes = opts.get("processes", 1)
+                    jobs_for_type = int(math.ceil(desired_procs / worker_processes))
+                    scale_dict[wtype] = jobs_for_type
+
+                return self.scale(scale_dict)
+
+        raise Exception("Invalid scale config")
+
+    def _resources_to_worker_extra_args(self, opts: dict) -> dict:
+        """Convert a `resources` mapping in `opts` into `worker_extra_args`.
+
+        Removes the `resources` key from `opts` (if present) and appends
+        `--resources key=value` pairs to the `worker_extra_args` list so that
+        the Job constructor does not receive an unexpected `resources` kwarg.
+        Returns the updated `opts` dict.
+        """
+        if not isinstance(opts, dict):
+            return opts
+
+        if "resources" in opts:
+            resources = opts.pop("resources") or {}
+            extra = list(opts.get("worker_extra_args") or [])
+            for k, v in (resources.items() if isinstance(resources, dict) else []):
+                extra.extend(["--resources", f"{k}={v}"])
+            if extra:
+                opts["worker_extra_args"] = extra
+
+        return opts
 
     @property
     def _dummy_job(self):
@@ -255,6 +280,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         first_entry = next(iter(self._spec_workers.values()))
         first_opts = dict(first_entry.get("options", {}) or {})
         opts.update(first_opts)
+
+        self._resources_to_worker_extra_args(opts)
 
         try:
             return self.job_cls(
@@ -278,19 +305,20 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
     def adapt(
         self, *args, minimum_jobs: int = None, maximum_jobs: int = None, **kwargs
     ):
-        raise Exception("adapt method is not implemented for HeterogeneousJobQueueCluster")
-        #if args:
-        #    raise TypeError(
-        #        "Positional args not supported for HeterogeneousJobQueueCluster.adapt()"
-        #    )
+        if args:
+            raise TypeError(
+                "Positional args not supported for HeterogeneousJobQueueCluster.adapt()"
+            )
 
-        #if minimum_jobs is not None:
-        #    kwargs["minimum"] = minimum_jobs * self._dummy_job.worker_processes
-        #if maximum_jobs is not None:
-        #    kwargs["maximum"] = maximum_jobs * self._dummy_job.worker_processes
+        if minimum_jobs is not None:
+            kwargs["minimum"] = minimum_jobs * self._dummy_job.worker_processes
+        if maximum_jobs is not None:
+            kwargs["maximum"] = maximum_jobs * self._dummy_job.worker_processes
 
-        #from dask_heterogeneous.adaptive import HeterogeneousAdaptive
-        #return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
+        print(kwargs)
+
+        from dask_heterogeneous.adaptive import HeterogeneousAdaptive
+        return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
 
     def add_worker(self, type_name: str, options: dict | None = None):
         """Register a new worker-type spec after initialization.
@@ -316,12 +344,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 opts["config_name"] = getattr(self.job_cls, "config_name", None)
 
         if "resources" in opts:
-            resources = opts.pop("resources") or {}
-            extra = list(opts.get("worker_extra_args") or [])
-            for k, v in (resources.items() if isinstance(resources, dict) else []):
-                extra.extend(["--resources", f"{k}={v}"])
-            if extra:
-                opts["worker_extra_args"] = extra
+            self._resources_to_worker_extra_args(opts)
 
         self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
 
