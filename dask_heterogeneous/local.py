@@ -1,13 +1,14 @@
 from distributed import Scheduler
 from dask_jobqueue.local import LocalJob
 from dask_heterogeneous.core import HeterogeneousJobQueueCluster
+from dask_heterogeneous.scheduler import HeterogeneousScheduler
 
 class HeterogeneousLocalCluster(HeterogeneousJobQueueCluster):
     job_cls = LocalJob
 
     def __init__(self, spec, n_workers=0, loop=None, security=None, shared_temp_directory=None,
                  silence_logs="error", name=None, asynchronous=False, scheduler_options=None,
-                 scheduler_cls=Scheduler, **kwargs):
+                 scheduler_cls=HeterogeneousScheduler, **kwargs):
         super().__init__(
             n_workers=n_workers,
             job_cls=self.job_cls,

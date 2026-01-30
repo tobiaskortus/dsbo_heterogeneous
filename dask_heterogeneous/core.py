@@ -5,6 +5,7 @@ import re
 from distributed.scheduler import Scheduler
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
+from dask_heterogeneous.scheduler import HeterogeneousScheduler
 
 class HeterogeneousJobQueueCluster(JobQueueCluster):
     __doc__ = """ Deploy Dask on a Job queuing system
@@ -40,7 +41,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         dashboard_address=None,
         host=None,
         scheduler_options=None,
-        scheduler_cls=Scheduler, 
+        scheduler_cls=HeterogeneousScheduler, 
         interface=None,
         protocol=None,
         config_name=None,
