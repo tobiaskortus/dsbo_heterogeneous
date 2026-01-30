@@ -93,9 +93,10 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 continue
 
             if worker_target > len(plan):
-                add_n = max(0, worker_target - len(plan))
+                #add_n = max(0, worker_target - len(plan))
+                #TODO: is it correct to use worker_target here?
                 self.close_counts_groups[worker].clear()
-                status_groups[worker] = {"status": "up", "n": add_n}
+                status_groups[worker] = {"status": "up", "n": worker_target}
                 continue
 
             not_yet_arrived = requested - observed
