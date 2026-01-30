@@ -1,6 +1,7 @@
 import os
 import dask
 import math
+import re
 from distributed.scheduler import Scheduler
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
@@ -239,15 +240,57 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
 
         return super().scale(jobs, memory=memory, cores=cores)
 
+    @property
+    def _dummy_job(self):
+        """Create a representative Job using the first worker-type's config.
+        This overrides JobQueueCluster._dummy_job using the first
+        worker spec as the representative job configuration.
+        """
+        try:
+            address = self.scheduler.address 
+        except AttributeError:
+            address = "tcp://<insert-scheduler-address-here>:8786"
+
+        opts = dict(self._job_kwargs or {})
+        first_entry = next(iter(self._spec_workers.values()))
+        first_opts = dict(first_entry.get("options", {}) or {})
+        opts.update(first_opts)
+
+        try:
+            return self.job_cls(
+                address or "tcp://<insert-scheduler-address-here>:8786",
+                name="dummy-name",
+                **opts,
+            )
+        except TypeError as exc:
+            match = re.search("(unexpected keyword argument.+)", str(exc))
+            if not match:
+                raise
+            message_orig = match.group(1)
+            raise ValueError(
+                'Got {}. Very likely this unexpected parameter was passed in "job_kwargs" in the {} constructor:\n'
+                "job_kwargs={}".format(
+                    message_orig, self.__class__.__name__, self._job_kwargs
+                )
+            ) from exc
+    
+
     def adapt(
         self, *args, minimum_jobs: int = None, maximum_jobs: int = None, **kwargs
     ):
         raise Exception("adapt method is not implemented for HeterogeneousJobQueueCluster")
-        if minimum_jobs is not None:
-            kwargs["minimum"] = minimum_jobs * self._dummy_job.worker_processes
-        if maximum_jobs is not None:
-            kwargs["maximum"] = maximum_jobs * self._dummy_job.worker_processes
-        return super().adapt(*args, **kwargs)
+        #if args:
+        #    raise TypeError(
+        #        "Positional args not supported for HeterogeneousJobQueueCluster.adapt()"
+        #    )
+
+        #if minimum_jobs is not None:
+        #    kwargs["minimum"] = minimum_jobs * self._dummy_job.worker_processes
+        #if maximum_jobs is not None:
+        #    kwargs["maximum"] = maximum_jobs * self._dummy_job.worker_processes
+
+        #from dask_heterogeneous.adaptive import HeterogeneousAdaptive
+        #return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
 
     def add_worker(self, type_name: str, options: dict | None = None):
         """Register a new worker-type spec after initialization.
