@@ -110,8 +110,10 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 to_close.update(toolz.take(len(plan) - worker_target, not_yet_arrived))
 
             if worker_target < len(plan) - len(to_close):
-                 # Call the core implementation explicitly (accepts `workers, target`)
-                L = await HeterogeneousAdaptiveCore.workers_to_close(self, observed_groups[worker], worker_target)
+                obs = observed_groups.get(worker, set())
+                if not obs:
+                    continue
+                L = await self.workers_to_close(obs, worker_target)
                 to_close.update(L)
 
             firmly_close = set()
@@ -188,7 +190,9 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
     ):
         self.cluster = cluster
         self.worker_key = worker_key
-        self._workers_to_close_kwargs = kwargs
+
+        _valid_wtc_keys = {"memory_ratio", "n", "minimum", "key", "target", "attribute"}
+        self._workers_to_close_kwargs = {k: v for k, v in kwargs.items() if k in _valid_wtc_keys}
 
         if adapt_config is None:
             adapt_config = kwargs["adapt_config"]
@@ -279,30 +283,20 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
 
         return await super().recommendations(target)
 
-    async def workers_to_close(self, target: int) -> list[str]:
-        """
-        Determine which, if any, workers should potentially be removed from
-        the cluster.
+    async def workers_to_close(self, workers, target: int) -> list[str]:
+        worker_list = list(workers)
+        if len(worker_list) <= target:
+            return []
 
-        Notes
-        -----
-        ``Adaptive.workers_to_close`` dispatches to Scheduler.workers_to_close(),
-        but may be overridden in subclasses.
-
-        Returns
-        -------
-        List of worker names to close, if any
-
-        See Also
-        --------
-        Scheduler.workers_to_close
-        """
-        return await self.scheduler.workers_to_close(
+        all_to_close = await self.scheduler.workers_to_close(
             target=target,
             key=pickle.dumps(self.worker_key) if self.worker_key else None,
             attribute="name",
             **self._workers_to_close_kwargs,
         )
+
+        worker_set = set(worker_list)
+        return [w for w in all_to_close if w in worker_set]
 
     @log_errors
     async def scale_down(self, workers):
