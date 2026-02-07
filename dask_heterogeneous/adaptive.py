@@ -64,7 +64,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
         return groups
 
     async def workers_to_close(self, workers, target):
-        return list(workers)[:target]
+        return list(workers)[target:]
 
     async def recommendations(self, target: dict[str, int]) -> dict:
         if not hasattr(self, "close_counts_groups") or self.close_counts_groups is None:
