@@ -1,7 +1,9 @@
+from collections import defaultdict
 import os
 import dask
 import math
 import re
+from typing import overload
 from distributed.scheduler import Scheduler
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
@@ -48,6 +50,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         **job_kwargs
     ):
         self.status = Status.created
+        self.adapt_config = defaultdict(int)
 
         default_job_cls = getattr(type(self), "job_cls", None)
         self.job_cls = default_job_cls
@@ -186,7 +189,15 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         
         raise Exception("spec parameter is required for HeterogeneousJobQueueCluster")
 
-    def scale(self, n: int | dict | None = None, jobs=0, memory=None, cores=None):
+    
+    @overload
+    def scale(self, n: int | None = None): ...
+
+    @overload
+    def scale(self, n_per_worker: dict | None = None): ...
+
+
+    def scale(self, n: int | dict | None = None):
         if isinstance(n, dict) and not hasattr(self, "_spec_workers"):
             raise ValueError(
                 "This cluster was not initialized with a heterogeneous `spec`, so "
@@ -244,79 +255,36 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 return self.scale(scale_dict)
 
         raise Exception("Invalid scale config")
+        
+    @overload
+    def adapt(self, min_max_per_worker: dict, **kwargs): ...
 
-    def _resources_to_worker_extra_args(self, opts: dict) -> dict:
-        """Convert a `resources` mapping in `opts` into `worker_extra_args`.
-
-        Removes the `resources` key from `opts` (if present) and appends
-        `--resources key=value` pairs to the `worker_extra_args` list so that
-        the Job constructor does not receive an unexpected `resources` kwarg.
-        Returns the updated `opts` dict.
-        """
-        if not isinstance(opts, dict):
-            return opts
-
-        if "resources" in opts:
-            resources = opts.pop("resources") or {}
-            extra = list(opts.get("worker_extra_args") or [])
-            for k, v in (resources.items() if isinstance(resources, dict) else []):
-                extra.extend(["--resources", f"{k}={v}"])
-            if extra:
-                opts["worker_extra_args"] = extra
-
-        return opts
-
-    @property
-    def _dummy_job(self):
-        """Create a representative Job using the first worker-type's config.
-        This overrides JobQueueCluster._dummy_job using the first
-        worker spec as the representative job configuration.
-        """
-        try:
-            address = self.scheduler.address 
-        except AttributeError:
-            address = "tcp://<insert-scheduler-address-here>:8786"
-
-        opts = dict(self._job_kwargs or {})
-        first_entry = next(iter(self._spec_workers.values()))
-        first_opts = dict(first_entry.get("options", {}) or {})
-        opts.update(first_opts)
-
-        self._resources_to_worker_extra_args(opts)
-
-        try:
-            return self.job_cls(
-                address or "tcp://<insert-scheduler-address-here>:8786",
-                name="dummy-name",
-                **opts,
-            )
-        except TypeError as exc:
-            match = re.search("(unexpected keyword argument.+)", str(exc))
-            if not match:
-                raise
-            message_orig = match.group(1)
-            raise ValueError(
-                'Got {}. Very likely this unexpected parameter was passed in "job_kwargs" in the {} constructor:\n'
-                "job_kwargs={}".format(
-                    message_orig, self.__class__.__name__, self._job_kwargs
-                )
-            ) from exc
+    @overload
+    def adapt(self, minimum_jobs: int = None, maximum_jobs: int = None, **kwargs): ...
     
 
     def adapt(
-        self, *args, minimum_jobs: int = None, maximum_jobs: int = None, **kwargs
+        self, *args, **kwargs
     ):
-        if args:
-            raise TypeError(
-                "Positional args not supported for HeterogeneousJobQueueCluster.adapt()"
-            )
+        
+        if isinstance(args[0] , dict):
+            #Use individual targets for each worker type
+            for worker_type, min_max in args[0].items():
+                if worker_type not in (self._spec_workers or {}):
+                    raise KeyError(f"Unknown worker type: {worker_type}")
+                worker_processes = self._spec_workers[worker_type].get("options", {}).get("processes", 1)
+                self.adapt_config[worker_type] = (min_max[0] * worker_processes,
+                                                  min_max[1] * worker_processes)
 
-        if minimum_jobs is not None:
-            kwargs["minimum"] = minimum_jobs * self._dummy_job.worker_processes
-        if maximum_jobs is not None:
-            kwargs["maximum"] = maximum_jobs * self._dummy_job.worker_processes
+        elif ((isinstance(args[0], int) or args[0] is None) and 
+              (isinstance(args[1], int) or args[1] is None)):
+            # Use same adapt target for all worker types
+            for worker_type in (self._spec_workers or {}):
+                worker_processes = self._spec_workers[worker_type].get("options", {}).get("processes", 1)
+                self.adapt_config[worker_type] = (args[0] * worker_processes,
+                                                  args[1] * worker_processes)
 
-        print(kwargs)
+        kwargs["adapt_config"] = dict(self.adapt_config)
 
         from dask_heterogeneous.adaptive import HeterogeneousAdaptive
         return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
@@ -353,3 +321,62 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             self._type_counters = {}
         self._type_counters.setdefault(type_name, 0)
         self.loop.add_callback(self._correct_state)
+
+
+    def _resources_to_worker_extra_args(self, opts: dict) -> dict:
+        """Convert a `resources` mapping in `opts` into `worker_extra_args`.
+
+        Removes the `resources` key from `opts` (if present) and appends
+        `--resources key=value` pairs to the `worker_extra_args` list so that
+        the Job constructor does not receive an unexpected `resources` kwarg.
+        Returns the updated `opts` dict.
+        """
+        if not isinstance(opts, dict):
+            return opts
+
+        if "resources" in opts:
+            resources = opts.pop("resources") or {}
+            extra = list(opts.get("worker_extra_args") or [])
+            for k, v in (resources.items() if isinstance(resources, dict) else []):
+                extra.extend(["--resources", f"{k}={v}"])
+            if extra:
+                opts["worker_extra_args"] = extra
+
+        return opts
+
+
+    @property
+    def _dummy_job(self):
+        """Create a representative Job using the first worker-type's config.
+        This overrides JobQueueCluster._dummy_job using the first
+        worker spec as the representative job configuration.
+        """
+        try:
+            address = self.scheduler.address 
+        except AttributeError:
+            address = "tcp://<insert-scheduler-address-here>:8786"
+
+        opts = dict(self._job_kwargs or {})
+        first_entry = next(iter(self._spec_workers.values()))
+        first_opts = dict(first_entry.get("options", {}) or {})
+        opts.update(first_opts)
+
+        self._resources_to_worker_extra_args(opts)
+
+        try:
+            return self.job_cls(
+                address or "tcp://<insert-scheduler-address-here>:8786",
+                name="dummy-name",
+                **opts,
+            )
+        except TypeError as exc:
+            match = re.search("(unexpected keyword argument.+)", str(exc))
+            if not match:
+                raise
+            message_orig = match.group(1)
+            raise ValueError(
+                'Got {}. Very likely this unexpected parameter was passed in "job_kwargs" in the {} constructor:\n'
+                "job_kwargs={}".format(
+                    message_orig, self.__class__.__name__, self._job_kwargs
+                )
+            ) from exc

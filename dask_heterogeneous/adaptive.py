@@ -27,6 +27,10 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     close_counts_groups: defaultdict[str, defaultdict[WorkerState, int]] | None
     close_counts: dict[WorkerState, int] | None
 
+    def __init__(self, adapt_config: dict, wait_count = 3):
+        self.adapt_config = adapt_config
+        super().__init__(wait_count=wait_count)
+
     @property
     def scheduler(self):
         return self.cluster.scheduler_comm
@@ -46,8 +50,9 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     async def safe_target(self) -> int:
         targets = await self.target()
 
+        print(targets, self.adapt_config)
         for k, n in list(targets.items()):
-            targets[k] = cast(int, min(max(n, self.minimum), self.maximum))
+            targets[k] = cast(int, min(max(n, self.adapt_config[k][0]), self.adapt_config[k][1]))
 
         return targets
 
@@ -173,8 +178,7 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
         self,
         cluster: "HeterogeneousJobQueueCluster",
         interval: str | float | timedelta | None = None,
-        minimum: int | None = None,
-        maximum: int | float | None = None,
+        adapt_config: dict[str, int] | None = None,
         wait_count: int | None = None,
         target_duration: str | float | timedelta | None = None,
         worker_key: (
@@ -186,12 +190,11 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
         self.worker_key = worker_key
         self._workers_to_close_kwargs = kwargs
 
+        if adapt_config is None:
+            adapt_config = kwargs["adapt_config"]
+
         if interval is None:
             interval = dask.config.get("distributed.adaptive.interval")
-        if minimum is None:
-            minimum = cast(int, dask.config.get("distributed.adaptive.minimum"))
-        if maximum is None:
-            maximum = cast(float, dask.config.get("distributed.adaptive.maximum"))
         if wait_count is None:
             wait_count = cast(int, dask.config.get("distributed.adaptive.wait-count"))
         if target_duration is None:
@@ -199,7 +202,7 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
                 str, dask.config.get("distributed.adaptive.target-duration")
             )
 
-        super().__init__(minimum=minimum, maximum=maximum, wait_count=wait_count)
+        super().__init__(adapt_config=adapt_config, wait_count=wait_count)
 
         self.interval = parse_timedelta(interval, "seconds")
         self.periodic_callback = None
