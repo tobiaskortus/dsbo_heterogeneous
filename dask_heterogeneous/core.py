@@ -270,6 +270,9 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         if isinstance(args[0] , dict):
             #Use individual targets for each worker type
             for worker_type, min_max in args[0].items():
+                assert min_max[0] >= 0 and min_max[1] >= 0, "Minimum and maximum number of jobs must be non-negative integers or None"
+                assert min_max[0] <= min_max[1], "Minimum number of jobs must be less than or equal to maximum number of jobs"
+                
                 if worker_type not in (self._spec_workers or {}):
                     raise KeyError(f"Unknown worker type: {worker_type}")
                 worker_processes = self._spec_workers[worker_type].get("options", {}).get("processes", 1)
