@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dask_heterogeneous"
+version = "0.1.0"
+description = "A small library that extends Dask/Dask-Jobqueue to run heterogeneous worker pools in a single dask cluster."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Tobias Kortus", email = "tobias.kortus@rptu.de" }
+]
+dependencies = [
+    "dask>=2026.1.1",
+    "dask-jobqueue>=0.9.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest"
+]
+
+[project.urls]
+Homepage = "https://github.com/tobiaskortus/dask_heterogeneous"
+Issues = "https://github.com/tobiaskortus/dask_heterogeneous/issues"
+
+[tool.setuptools]
+package-dir = {"" = "dask_heterogeneous"}
+
+[tool.setuptools.packages.find]
+where = ["dask_heterogeneous"]
