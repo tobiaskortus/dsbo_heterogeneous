@@ -114,7 +114,7 @@ class HeterogeneousScheduler(Scheduler):
             if used > 0.6 * limit and limit > 0:
                 memory = 2 * len(workers)
             target = max(memory, cpu)
-            if target >= len(self.workers):
+            if target >= len(workers):
                 targets[worker_type] = target
             else:
                 to_close = self.workers_to_close()
