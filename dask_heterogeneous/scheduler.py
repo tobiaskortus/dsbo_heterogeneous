@@ -75,7 +75,8 @@ class HeterogeneousScheduler(Scheduler):
         unrunnable_groups = self.unrunnable_groups
         total_occupancy_groups = self.total_per_worker_occupancy
 
-        for worker_type, workers in worker_groups.items():
+        for worker_type in worker_types:
+            workers = worker_groups.get(worker_type, {})
             queued_occupancy = 0.0
             total_occupancy = total_occupancy_groups.get(worker_type, 0.0)
 
