@@ -50,7 +50,6 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     async def safe_target(self) -> int:
         targets = await self.target()
 
-        print(targets, self.adapt_config)
         for k, n in list(targets.items()):
             targets[k] = cast(int, min(max(n, self.adapt_config[k][0]), self.adapt_config[k][1]))
 
@@ -59,7 +58,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     def _groupby_workers(self, items: Iterable[WorkerState]) -> dict[str, set[WorkerState]]:
         groups: defaultdict[str, set[WorkerState]] = defaultdict(set)
         for ws in items:
-            wtype = ws.rsplit("-", 2)[1]
+            wtype = ws.split("-")[1]
             groups[wtype].add(ws)
         return groups
 
@@ -163,8 +162,8 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 if status == "down":
                     scale_down_workers.extend(recommendation["workers"])
             
-            print("Scale_up:", scale_up_recommendations)
-            print("Scale_down:", scale_down_workers)
+            print(f"Scale up recommendations: {scale_up_recommendations}")
+            print(f"Scale down recommendations: {scale_down_workers}")
             await self.scale_up(scale_up_recommendations)
             await self.scale_down(scale_down_workers)
         finally:
@@ -300,7 +299,6 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
 
     @log_errors
     async def scale_down(self, workers):
-        print("Scaling down workers:", workers)
         if not workers:
             return
 
@@ -318,7 +316,6 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
             await f
 
     async def scale_up(self, n: dict[str, int]):
-        print("Scaling up workers:", n)
         f = self.cluster.scale(n)
         if isawaitable(f):
             await f
