@@ -42,7 +42,7 @@ class HeterogeneousScheduler(Scheduler):
         groups = defaultdict(dict)
 
         for addr, ws in self.workers.items():
-            wtype = ws.name.rsplit("-", 2)[1]
+            wtype = ws.name.split("-")[1]
             groups[wtype][addr] = ws
 
         return groups

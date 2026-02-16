@@ -151,7 +151,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                         opts["config_name"] = getattr(self.job_cls, "config_name", None)
                 workers[type_name] = {"cls": self.job_cls, "options": opts}
 
-            cluster_name = name if name is not None else f"jobqueue-{os.getpid()}"
+            cluster_name = name.replace("-", "_") if name is not None else f"jobqueue_{os.getpid()}"
 
             SpecCluster.__init__(
                 self,

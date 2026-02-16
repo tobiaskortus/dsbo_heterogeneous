@@ -58,7 +58,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     def _groupby_workers(self, items: Iterable[WorkerState]) -> dict[str, set[WorkerState]]:
         groups: defaultdict[str, set[WorkerState]] = defaultdict(set)
         for ws in items:
-            wtype = ws.rsplit("-", 2)[1]
+            wtype = ws.split("-")[1]
             groups[wtype].add(ws)
         return groups
 
@@ -162,6 +162,8 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 if status == "down":
                     scale_down_workers.extend(recommendation["workers"])
             
+            print(f"Scale up recommendations: {scale_up_recommendations}")
+            print(f"Scale down recommendations: {scale_down_workers}")
             await self.scale_up(scale_up_recommendations)
             await self.scale_down(scale_down_workers)
         finally:
