@@ -27,7 +27,4 @@ Homepage = "https://github.com/tobiaskortus/dask_heterogeneous"
 Issues = "https://github.com/tobiaskortus/dask_heterogeneous/issues"
 
 [tool.setuptools]
-package-dir = {"" = "dask_heterogeneous"}
-
-[tool.setuptools.packages.find]
-where = ["dask_heterogeneous"]
+packages = ["dask_heterogeneous"]
