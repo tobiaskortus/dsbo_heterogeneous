@@ -64,7 +64,14 @@ class HeterogeneousScheduler(Scheduler):
         return unrunnable_by_type
 
     def adaptive_target(self, worker_types: list[str], target_duration: float | None = None) -> dict[str, int]:
-        assert set(self.worker_groups.keys()).issubset(set(worker_types)), "Unknown worker types found in scheduler"
+        if not set(self.worker_groups.keys()).issubset(set(worker_types)):
+            unknown = set(self.worker_groups.keys()) - set(worker_types)
+            raise AssertionError(
+                "Unknown worker types found in scheduler: {}. "
+                "Expected worker_types={}; scheduler_groups={}; _spec_workers={}.".format(
+                    unknown, list(worker_types), list(self.worker_groups.keys()), list(getattr(self, "_spec_workers", {}) or {})
+                )
+            )
 
         target_duration = target_duration or dask.config.get("distributed.adaptive.target-duration")
         target_duration = parse_timedelta(target_duration)

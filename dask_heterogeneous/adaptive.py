@@ -1,7 +1,9 @@
 
 from collections import defaultdict
+import math
 import pickle
 import logging
+import re
 from datetime import time, timedelta
 from inspect import isawaitable
 import stat
@@ -55,15 +57,28 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
 
         return targets
 
-    def _groupby_workers(self, items: Iterable[WorkerState]) -> dict[str, set[WorkerState]]:
-        groups: defaultdict[str, set[WorkerState]] = defaultdict(set)
+    def _groupby_workers(self, items: Iterable[str]) -> dict[str, set]:
+        prefix = f"{self.cluster._name}-"
+        groups: defaultdict[str, set] = defaultdict(set)
         for ws in items:
-            wtype = ws.split("-")[1]
+            #Match names like "cluster-name-0-1" or "cluster-name-0" to worker type "name" 
+            wtype = re.sub(r"(-\d+){1,2}$", "", ws.removeprefix(prefix))
             groups[wtype].add(ws)
         return groups
 
     async def workers_to_close(self, workers, target):
         return list(workers)[target:]
+
+    def _get_processes(self, wtype: str) -> int:
+        spec = self.cluster._spec_workers
+        if not spec or wtype not in spec:
+            return 1
+        return spec[wtype]["options"]["processes"]
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Strip the process-index suffix: e.g., 'name-0-1' -> 'name-0'."""
+        return re.sub(r"-\d+$", "", name)
 
     async def recommendations(self, target: dict[str, int]) -> dict:
         if not hasattr(self, "close_counts_groups") or self.close_counts_groups is None:
@@ -89,29 +104,36 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
             observed = observed_groups.get(worker, set())
             requested = requested_groups.get(worker, set())
 
+            processes = self._get_processes(worker)
+
+            plan_workers = len(plan) * processes
+            job_target = math.ceil(target.get(worker, 0) / processes)
+
             worker_target = target.get(worker, 0)
 
-            if worker_target == len(plan):
+            if worker_target == plan_workers:
                 self.close_counts_groups[worker].clear()
                 status_groups[worker] = {"status": "same"}
                 continue
 
-            if worker_target > len(plan):
-                #add_n = max(0, worker_target - len(plan))
-                #TODO: is it correct to use worker_target here?
+            if worker_target > plan_workers:
                 self.close_counts_groups[worker].clear()
                 status_groups[worker] = {"status": "up", "n": worker_target}
                 continue
 
-            not_yet_arrived = requested - observed
-            to_close = set()
-            if not_yet_arrived:
-                to_close.update(toolz.take(len(plan) - worker_target, not_yet_arrived))
+            observed_normalized = {self._normalize_name(w) for w in observed}
+            not_yet_arrived = set(requested) - observed_normalized
 
-            if worker_target < len(plan) - len(to_close):
+            to_close: set = set()
+            if not_yet_arrived:
+                n_to_cancel = len(plan) - job_target
+                to_close.update(toolz.take(n_to_cancel, not_yet_arrived))
+
+            if worker_target < plan_workers - len(to_close) * processes:
                 obs = observed_groups.get(worker, set())
                 if not obs:
                     continue
+
                 L = await self.workers_to_close(obs, worker_target)
                 to_close.update(L)
 
@@ -316,7 +338,11 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
             await f
 
     async def scale_up(self, n: dict[str, int]):
-        f = self.cluster.scale(n)
+        n_jobs: dict[str, int] = {}
+        for wtype, target_workers in n.items():
+            processes = self._get_processes(wtype)
+            n_jobs[wtype] = math.ceil(target_workers / processes)
+        f = self.cluster.scale(n_jobs)
         if isawaitable(f):
             await f
 

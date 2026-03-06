@@ -137,20 +137,6 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         self._job_kwargs = job_kwargs
 
         if spec is not None:
-            workers = {}
-            for type_name, job_opts in spec.items():
-                opts = dict(self._job_kwargs or {})
-                if job_opts:
-                    opts.update(job_opts)
-
-                self._resources_to_worker_extra_args(opts)
-                if "config_name" not in opts:
-                    try:
-                        opts["config_name"] = self.job_cls.default_config_name()
-                    except Exception:
-                        opts["config_name"] = getattr(self.job_cls, "config_name", None)
-                workers[type_name] = {"cls": self.job_cls, "options": opts}
-
             cluster_name = name.replace("-", "_") if name is not None else f"jobqueue_{os.getpid()}"
 
             SpecCluster.__init__(
@@ -172,11 +158,13 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             self._job_kwargs = job_kwargs
 
             self._spec_workers = {}
-            for k, v in (workers or {}).items():
-                entry = {"cls": v["cls"], "options": dict(v.get("options", {}))}
-                if "group" in v:
-                    entry["group"] = list(v["group"])
-                self._spec_workers[k] = entry
+            for type_name, job_opts in spec.items():
+                opts = dict(self._job_kwargs or {})
+                if job_opts: opts.update(job_opts)
+                self._resources_to_worker_extra_args(opts)
+                if "config_name" not in opts:
+                    opts["config_name"] = self.job_cls.default_config_name()
+                self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
 
             self._type_counters = {k: 0 for k in self._spec_workers}
 
@@ -311,6 +299,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         options : dict, optional
             Worker options for this type; merged with the cluster's common job kwargs.
         """
+        raise NotImplementedError("add_worker is currently not supported. Please specify all worker types at cluster initialization through the `spec` parameter.")
         if not hasattr(self, "_spec_workers") or self._spec_workers is None:
             self._spec_workers = {}
 
