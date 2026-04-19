@@ -1,16 +1,13 @@
-from asyncio import tasks
-import queue
 import dask
 import math
-import logging
-from tlz import concat, take
-from distributed import Scheduler
 from collections import defaultdict
+from tlz import concat, take
 from dask.utils import parse_timedelta
+from distributed import Scheduler
 from distributed.scheduler import WorkerState
 
 class HeterogeneousScheduler(Scheduler):
-    def _calc_per_worker_occupancy(self, network_occ: float) -> float:
+    def _calc_per_worker_occupancy(self, network_occ: float) -> dict[str, float]:
         res_dict = {}
         occ_dict = {}
 
@@ -34,7 +31,6 @@ class HeterogeneousScheduler(Scheduler):
     
     @property
     def total_per_worker_occupancy(self) -> dict[str, float]:
-        #TODO can I use self._network_occ_global here?
         return self._calc_per_worker_occupancy(self._network_occ_global)
     
     @property
@@ -66,7 +62,7 @@ class HeterogeneousScheduler(Scheduler):
     def adaptive_target(self, worker_types: list[str], target_duration: float | None = None) -> dict[str, int]:
         if not set(self.worker_groups.keys()).issubset(set(worker_types)):
             unknown = set(self.worker_groups.keys()) - set(worker_types)
-            raise AssertionError(
+            raise ValueError(
                 "Unknown worker types found in scheduler: {}. "
                 "Expected worker_types={}; scheduler_groups={}; _spec_workers={}.".format(
                     unknown, list(worker_types), list(self.worker_groups.keys()), list(getattr(self, "_spec_workers", {}) or {})

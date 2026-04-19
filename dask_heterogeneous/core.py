@@ -4,7 +4,6 @@ import dask
 import math
 import re
 from typing import overload
-from distributed.scheduler import Scheduler
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
 from dask_heterogeneous.scheduler import HeterogeneousScheduler
@@ -299,29 +298,10 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         options : dict, optional
             Worker options for this type; merged with the cluster's common job kwargs.
         """
-        raise NotImplementedError("add_worker is currently not supported. Please specify all worker types at cluster initialization through the `spec` parameter.")
-        if not hasattr(self, "_spec_workers") or self._spec_workers is None:
-            self._spec_workers = {}
-
-        opts = dict(self._job_kwargs or {})
-        if options:
-            opts.update(options)
-
-        if "config_name" not in opts:
-            try:
-                opts["config_name"] = self.job_cls.default_config_name()
-            except Exception:
-                opts["config_name"] = getattr(self.job_cls, "config_name", None)
-
-        if "resources" in opts:
-            self._resources_to_worker_extra_args(opts)
-
-        self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
-
-        if not hasattr(self, "_type_counters"):
-            self._type_counters = {}
-        self._type_counters.setdefault(type_name, 0)
-        self.loop.add_callback(self._correct_state)
+        raise NotImplementedError(
+            "add_worker is currently not supported. Please specify all worker "
+            "types at cluster initialization through the `spec` parameter."
+        )
 
 
     def _resources_to_worker_extra_args(self, opts: dict) -> dict:

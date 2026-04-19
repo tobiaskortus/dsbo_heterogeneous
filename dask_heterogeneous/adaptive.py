@@ -4,9 +4,9 @@ import math
 import pickle
 import logging
 import re
-from datetime import time, timedelta
+from datetime import timedelta
+from time import time
 from inspect import isawaitable
-import stat
 from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterable, cast
 
 import dask
@@ -49,7 +49,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     def observed(self):
         return self.cluster.observed
 
-    async def safe_target(self) -> int:
+    async def safe_target(self) -> dict[str, int]:
         targets = await self.target()
 
         for k, n in list(targets.items()):
@@ -172,7 +172,6 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
             scale_down_workers = []
 
             for wtype, recommendation in recommendations.items():
-                #TODO: handle multiple worker types better
                 if recommendation["status"] != "same":
                     self.log.append((time(), dict(recommendations)))
                     
@@ -184,8 +183,8 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 if status == "down":
                     scale_down_workers.extend(recommendation["workers"])
             
-            print(f"Scale up recommendations: {scale_up_recommendations}")
-            print(f"Scale down recommendations: {scale_down_workers}")
+            logger.debug("Scale up recommendations: %s", scale_up_recommendations)
+            logger.debug("Scale down recommendations: %s", scale_down_workers)
             await self.scale_up(scale_up_recommendations)
             await self.scale_down(scale_down_workers)
         finally:
@@ -263,7 +262,8 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
         if self.state != "starting":
             return
 
-        assert self.periodic_callback is not None
+        if self.periodic_callback is None:
+            raise RuntimeError("periodic_callback is None during _start")
         self.periodic_callback.start()
         self.state = "running"
         logger.info(
@@ -277,7 +277,8 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
             return
 
         if self.state == "running":
-            assert self.periodic_callback is not None
+            if self.periodic_callback is None:
+                raise RuntimeError("periodic_callback is None during stop")
             self.periodic_callback.stop()
         logger.info(
             "Adaptive scaling stopped: minimum=%s maximum=%s. Reason: %s",
@@ -296,7 +297,7 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
             target_duration=self.target_duration
         )
 
-    async def recommendations(self, target: int) -> dict:
+    async def recommendations(self, target: dict[str, int]) -> dict:
         if len(self.plan) != len(self.requested):
             # Ensure that the number of planned and requested workers
             # are in sync before making recommendations.
