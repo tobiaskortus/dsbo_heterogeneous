@@ -1,10 +1,8 @@
 from collections import defaultdict
 import os
-import dask
 import math
 import re
 from typing import overload
-from distributed.scheduler import Scheduler
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
 from dask_heterogeneous.scheduler import HeterogeneousScheduler
@@ -43,10 +41,9 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         dashboard_address=None,
         host=None,
         scheduler_options=None,
-        scheduler_cls=HeterogeneousScheduler, 
+        scheduler_cls=HeterogeneousScheduler,
         interface=None,
         protocol=None,
-        config_name=None,
         **job_kwargs
     ):
         self.status = Status.created
@@ -57,15 +54,9 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         if job_cls is not None:
             self.job_cls = job_cls
 
-        if self.job_cls is None:
+        if not self.job_cls and not all(v and v.get("cls") for v in (spec or {}).values()):
             raise ValueError(
-                "You need to specify a Job type. Two cases:\n"
-                "- you are inheriting from JobQueueCluster (most likely): you need to add a 'job_cls' class variable "
-                "in your JobQueueCluster-derived class {}\n"
-                "- you are using JobQueueCluster directly (less likely, only useful for tests): "
-                "please explicitly pass a Job type through the 'job_cls' parameter.".format(
-                    type(self)
-                )
+                "Cannot determine the Job class/es. Include a 'cls' key when using HybridCluster."
             )
 
         if dashboard_address is not None:
@@ -84,16 +75,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 'cluster = {0}(..., host="your-host")'.format(self.__class__.__name__)
             )
 
-        default_config_name = self.job_cls.default_config_name()
-        if config_name is None:
-            config_name = default_config_name
-
-        if interface is None:
-            interface = dask.config.get("jobqueue.%s.interface" % config_name)
         if scheduler_options is None:
-            scheduler_options = dask.config.get(
-                "jobqueue.%s.scheduler-options" % config_name, {}
-            )
+            scheduler_options = {}
 
         if protocol is None and security is not None:
             protocol = "tls://"
@@ -123,13 +106,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             "options": scheduler_options,
         }
 
-        if shared_temp_directory is None:
-            shared_temp_directory = dask.config.get(
-                "jobqueue.%s.shared-temp-directory" % config_name
-            )
         self.shared_temp_directory = shared_temp_directory
 
-        job_kwargs["config_name"] = config_name
         job_kwargs["interface"] = interface
         job_kwargs["protocol"] = protocol
         job_kwargs["security"] = self._get_worker_security(security)
@@ -155,24 +133,28 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             except Exception:
                 pass
 
-            self._job_kwargs = job_kwargs
-
             self._spec_workers = {}
             for type_name, job_opts in spec.items():
+                if job_opts is {}:
+                    continue
+
+                spec_job_cls = job_opts.get("cls", None) or self.job_cls
+                if spec_job_cls is None:
+                    raise ValueError(
+                        f"Worker type '{type_name}' has no 'spec' key and no cluster-level "
+                        "job_cls is set. Add a 'spec' key to this entry or pass job_cls."
+                    )
+                job_opts.pop("cls", None)
                 opts = dict(self._job_kwargs or {})
-                if job_opts: opts.update(job_opts)
+                opts.update(job_opts)
                 self._resources_to_worker_extra_args(opts)
-                if "config_name" not in opts:
-                    opts["config_name"] = self.job_cls.default_config_name()
-                self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
+                opts["config_name"] = spec_job_cls.default_config_name()
+                self._spec_workers[type_name] = {"cls": spec_job_cls, "options": opts}
 
             self._type_counters = {k: 0 for k in self._spec_workers}
 
             if n_workers:
-                if isinstance(n_workers, dict):
-                    self.scale(n_workers)
-                else:
-                    self.scale(n_workers)
+                self.scale(n_workers)
             return
         
         raise Exception("spec parameter is required for HeterogeneousJobQueueCluster")
@@ -300,28 +282,28 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             Worker options for this type; merged with the cluster's common job kwargs.
         """
         raise NotImplementedError("add_worker is currently not supported. Please specify all worker types at cluster initialization through the `spec` parameter.")
-        if not hasattr(self, "_spec_workers") or self._spec_workers is None:
-            self._spec_workers = {}
-
-        opts = dict(self._job_kwargs or {})
-        if options:
-            opts.update(options)
-
-        if "config_name" not in opts:
-            try:
-                opts["config_name"] = self.job_cls.default_config_name()
-            except Exception:
-                opts["config_name"] = getattr(self.job_cls, "config_name", None)
-
-        if "resources" in opts:
-            self._resources_to_worker_extra_args(opts)
-
-        self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
-
-        if not hasattr(self, "_type_counters"):
-            self._type_counters = {}
-        self._type_counters.setdefault(type_name, 0)
-        self.loop.add_callback(self._correct_state)
+        #if not hasattr(self, "_spec_workers") or self._spec_workers is None:
+        #    self._spec_workers = {}
+#
+        #opts = dict(self._job_kwargs or {})
+        #if options:
+        #    opts.update(options)
+#
+        #if "config_name" not in opts:
+        #    try:
+        #        opts["config_name"] = self.job_cls.default_config_name()
+        #    except Exception:
+        #        opts["config_name"] = getattr(self.job_cls, "config_name", None)
+#
+        #if "resources" in opts:
+        #    self._resources_to_worker_extra_args(opts)
+#
+        #self._spec_workers[type_name] = {"cls": self.job_cls, "options": opts}
+#
+        #if not hasattr(self, "_type_counters"):
+        #    self._type_counters = {}
+        #self._type_counters.setdefault(type_name, 0)
+        #self.loop.add_callback(self._correct_state)
 
 
     def _resources_to_worker_extra_args(self, opts: dict) -> dict:
@@ -346,26 +328,16 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         return opts
 
 
-    @property
-    def _dummy_job(self):
-        """Create a representative Job using the first worker-type's config.
-        This overrides JobQueueCluster._dummy_job using the first
-        worker spec as the representative job configuration.
-        """
+    def _make_dummy_job(self, type_name: str):
+        """Instantiate a dummy Job for a specific worker type."""
         try:
-            address = self.scheduler.address 
+            address = self.scheduler.address
         except AttributeError:
             address = "tcp://<insert-scheduler-address-here>:8786"
-
-        opts = dict(self._job_kwargs or {})
-        first_entry = next(iter(self._spec_workers.values()))
-        first_opts = dict(first_entry.get("options", {}) or {})
-        opts.update(first_opts)
-
-        self._resources_to_worker_extra_args(opts)
-
+        entry = self._spec_workers[type_name]
+        opts = dict(entry.get("options", {}) or {})
         try:
-            return self.job_cls(
+            return entry["cls"](
                 address or "tcp://<insert-scheduler-address-here>:8786",
                 name="dummy-name",
                 **opts,
@@ -377,7 +349,18 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
             message_orig = match.group(1)
             raise ValueError(
                 'Got {}. Very likely this unexpected parameter was passed in "job_kwargs" in the {} constructor:\n'
-                "job_kwargs={}".format(
-                    message_orig, self.__class__.__name__, self._job_kwargs
-                )
+                "job_kwargs={}".format(message_orig, self.__class__.__name__, self._job_kwargs)
             ) from exc
+
+    @property
+    def _dummy_job(self):
+        """Create a representative Job using the first worker-type's config."""
+        first_type = next(iter(self._spec_workers))
+        return self._make_dummy_job(first_type)
+
+    @property
+    def job_header(self) -> dict[str, str]:
+        return {type_name: self._make_dummy_job(type_name).job_header for type_name in self._spec_workers}
+
+    def job_script(self) -> dict[str, str]:
+        return {type_name: self._make_dummy_job(type_name).job_script() for type_name in self._spec_workers}
