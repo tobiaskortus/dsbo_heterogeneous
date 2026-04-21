@@ -4,8 +4,10 @@ dask_heteogeneous provides a small library that extends Dask/Dask-Jobqueue to ru
 
 
 > [!WARNING]
-> dsbo is a prototype/early stage implementation for heterogeneous cluster creation within dask-jobqueue! If you notice any issues or have any suggestions for improvements, please write up a GitHub issue detailing the problem or proposal. We also recommend “watching” the GitHub repository to keep track of new releases, and upgrading promptly when they occur.
+> dask_heterogeneous is a prototype/early stage implementation for heterogeneous cluster creation within dask-jobqueue! If you notice any issues or have any suggestions for improvements, please write up a GitHub issue detailing the problem or proposal. We also recommend “watching” the GitHub repository to keep track of new releases, and upgrading promptly when they occur.
 
+> [!WARNING]
+> User configurations (yaml files, environment variables, etc.) are currently removed in favor of simplicity and clarity of heterogeneous and hybrid cluster definitions.
 
 ## Installation
 
@@ -53,3 +55,4 @@ cluster.adapt({"cpu": (0, 20), "gpu": (0, 5)})
 client = Client(cluster)
 
 ```
+
