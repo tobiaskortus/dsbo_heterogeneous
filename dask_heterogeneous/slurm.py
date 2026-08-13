@@ -1,4 +1,3 @@
-from distributed import Scheduler
 from dask_jobqueue.slurm import SLURMJob
 from dask_heterogeneous.core import HeterogeneousJobQueueCluster
 from dask_heterogeneous.scheduler import HeterogeneousScheduler
