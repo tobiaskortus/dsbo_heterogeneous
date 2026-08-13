@@ -183,8 +183,6 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
                 if status == "down":
                     scale_down_workers.extend(recommendation["workers"])
             
-            logger.debug("Scale up recommendations: %s", scale_up_recommendations)
-            logger.debug("Scale down recommendations: %s", scale_down_workers)
             await self.scale_up(scale_up_recommendations)
             await self.scale_down(scale_down_workers)
         finally:
