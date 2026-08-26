@@ -7,6 +7,48 @@ from distributed import Scheduler
 from distributed.scheduler import WorkerState
 
 class HeterogeneousScheduler(Scheduler):
+    def _apply_annotations(self, tasks, annotations_by_type, global_annotations=None):
+        """``HeterogeneousScheduler`` requires every task to declare a ``resources``
+        mapping (either via ``client.submit(..., resources=...)`` or a surrounding
+        ``dask.annotate(resources=...)`` block) so it can be routed to a worker type.
+        """
+        keys = super()._apply_annotations(
+            tasks,
+            annotations_by_type,
+            global_annotations=global_annotations,
+        )
+
+        for ts in tasks: self._task_worker_type(ts)
+        return keys
+
+    def _task_worker_type(self, ts) -> str:
+        """Return the worker type a task is routed to."""
+        restrictions = getattr(ts, "resource_restrictions", None)
+        if not restrictions:
+            key = getattr(ts, "key", None)
+            raise ValueError(
+                "Task {!r} has no 'resources' mapping; every task in a "
+                "heterogeneous cluster must declare resources=... (or be "
+                "submitted inside a dask.annotate(resources=...) block) so it "
+                "can be routed to a worker type.".format(key)
+            )
+        if len(restrictions) != 1:
+            raise ValueError(
+                "Task {!r} declares multiple resources {}; a heterogeneous "
+                "cluster expects exactly one resource naming the worker type "
+                "the task is routed to.".format(
+                    getattr(ts, "key", None), set(restrictions)
+                )
+            )
+        wtype, = restrictions
+        known = getattr(self, "_spec_workers", None)
+        if known and wtype not in known:
+            raise ValueError(
+                "Task {!r} routes to unknown worker type {!r}; expected one of "
+                "{}.".format(getattr(ts, "key", None), wtype, sorted(known))
+            )
+        return wtype
+
     def _calc_per_worker_occupancy(self, network_occ: float) -> dict[str, float]:
         res_dict = {}
         occ_dict = {}
@@ -18,7 +60,7 @@ class HeterogeneousScheduler(Scheduler):
             prefix_name = ts.prefix.name
             self.task_prefixes[prefix_name]
             duration = self._get_prefix_duration(self.task_prefixes[prefix_name])
-            task_worker = next(iter(ts.resource_restrictions.keys())) 
+            task_worker = self._task_worker_type(ts)
             res_dict[task_worker] = res_dict.get(task_worker, 0) + duration
         
         for worker_type, res in res_dict.items():
@@ -47,7 +89,7 @@ class HeterogeneousScheduler(Scheduler):
     def queue_groups(self) -> dict[str, list]:
         queued_by_type: dict[str, list] = defaultdict(list)
         for ts in self.queued:
-            wtype = next(iter(ts.resource_restrictions.keys()))
+            wtype = self._task_worker_type(ts)
             queued_by_type[wtype].append(ts)
         return queued_by_type
 
@@ -55,7 +97,7 @@ class HeterogeneousScheduler(Scheduler):
     def unrunnable_groups(self) -> dict[str, list]:
         unrunnable_by_type: dict[str, list] = defaultdict(list)
         for ts in self.unrunnable.keys():
-            wtype = next(iter(ts.resource_restrictions.keys()))
+            wtype = self._task_worker_type(ts)
             unrunnable_by_type[wtype].append(ts)
         return unrunnable_by_type
 
