@@ -78,6 +78,13 @@ def test_dask_annotate_resources_routes_task_to_worker_type(client, cluster):
     assert cluster.scheduler._task_worker_type(task) == "gpu"
 
 
+def submit_with_resources(submission, annotate, resources):
+    if annotate:
+        with dask.annotate(resources=resources):
+            return submission(function, 1)
+    return submission(function, 1, resources=resources)
+
+
 def test_submit_without_resources_raises_informative_error(client, cluster):
     future = client.submit(function, 1)
 
@@ -89,15 +96,29 @@ def test_submit_without_resources_raises_informative_error(client, cluster):
     assert "dask.annotate" in message
 
 
-def test_submit_with_multiple_resources_raises_ambiguous_routing_error(client, cluster):
-    future = client.submit(function, 1, resources={"gpu": 1, "cpu": 1})
+@pytest.mark.parametrize(
+    "annotate,resources",
+    [
+        (False, {"gpu": 1, "cpu": 1}),
+        (True, {"gpu": 1, "cpu": 1}),
+    ],
+)
+def test_with_multiple_resources_raises_ambiguous_routing_error(client, cluster, annotate, resources):
+    future = submit_with_resources(client.submit, annotate, resources)
 
     with pytest.raises(ValueError, match="multiple resources"):
         future.result(timeout=1)
 
 
-def test_submit_with_unknown_worker_type_raises_error(client, cluster):
-    future = client.submit(function, 1, resources={"tpu": 1})
+@pytest.mark.parametrize(
+    "annotate,resources",
+    [
+        (False, {"tpu": 1}),
+        (True, {"tpu": 1}),
+    ],
+)
+def test_with_unknown_worker_type_raises_error(client, cluster, annotate, resources):
+    future = submit_with_resources(client.submit, annotate, resources)
 
     with pytest.raises(ValueError) as excinfo:
         future.result(timeout=1)
