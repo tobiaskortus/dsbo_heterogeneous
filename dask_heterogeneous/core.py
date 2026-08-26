@@ -6,6 +6,7 @@ from typing import overload
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
 from dask_heterogeneous.scheduler import HeterogeneousScheduler
+from dask_heterogeneous.utils import worker_type_from_name
 
 class HeterogeneousJobQueueCluster(JobQueueCluster):
     __doc__ = """ Deploy Dask on a Job queuing system
@@ -195,8 +196,11 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                                 entry["group"] = list(template["group"])
                             desired[name] = entry
 
+                requested_types = set(n)
+
                 for name, spec_entry in current.items():
-                    if name in (self._spec_workers or {}):
+                    wtype = worker_type_from_name(name, f"{self._name}-")
+                    if wtype is not None and wtype in requested_types:
                         continue
 
                     if name not in desired:

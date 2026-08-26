@@ -19,6 +19,7 @@ from distributed.scheduler import WorkerState
 from distributed.deploy.adaptive_core import AdaptiveCore
 from distributed.deploy.adaptive import AdaptiveStateState
 from distributed.compatibility import PeriodicCallback
+from dask_heterogeneous.utils import worker_type_from_name
 
 if TYPE_CHECKING:
     from dask_heterogeneous.core import HeterogeneousJobQueueCluster
@@ -61,8 +62,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
         prefix = f"{self.cluster._name}-"
         groups: defaultdict[str, set] = defaultdict(set)
         for ws in items:
-            #Match names like "cluster-name-0-1" or "cluster-name-0" to worker type "name" 
-            wtype = re.sub(r"(-\d+){1,2}$", "", ws.removeprefix(prefix))
+            wtype = worker_type_from_name(ws, prefix) or ws
             groups[wtype].add(ws)
         return groups
 
