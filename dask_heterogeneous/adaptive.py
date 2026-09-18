@@ -30,7 +30,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
     close_counts_groups: defaultdict[str, defaultdict[WorkerState, int]] | None
     close_counts: dict[WorkerState, int] | None
 
-    def __init__(self, adapt_config: dict, wait_count = 3):
+    def __init__(self, adapt_config: dict[str, tuple[int | None, int | None]], wait_count=3):
         self.adapt_config = adapt_config
         super().__init__(wait_count=wait_count)
 
@@ -54,7 +54,12 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
         targets = await self.target()
 
         for k, n in list(targets.items()):
-            targets[k] = cast(int, min(max(n, self.adapt_config[k][0]), self.adapt_config[k][1]))
+            minimum, maximum = self.adapt_config.get(k, (None, None))
+            if minimum is not None:
+                n = max(n, minimum)
+            if maximum is not None:
+                n = min(n, maximum)
+            targets[k] = cast(int, n)
 
         return targets
 
@@ -73,7 +78,7 @@ class HeterogeneousAdaptiveCore(AdaptiveCore):
         spec = self.cluster._spec_workers
         if not spec or wtype not in spec:
             return 1
-        return spec[wtype]["options"]["processes"]
+        return self.cluster._worker_processes(wtype)
 
     @staticmethod
     def _normalize_name(name: str) -> str:
@@ -198,7 +203,7 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
         self,
         cluster: "HeterogeneousJobQueueCluster",
         interval: str | float | timedelta | None = None,
-        adapt_config: dict[str, int] | None = None,
+        adapt_config: dict[str, tuple[int | None, int | None]] | None = None,
         wait_count: int | None = None,
         target_duration: str | float | timedelta | None = None,
         worker_key: (
@@ -305,7 +310,8 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
 
     async def workers_to_close(self, workers, target: int) -> list[str]:
         worker_list = list(workers)
-        if len(worker_list) <= target:
+        excess = len(worker_list) - target
+        if excess <= 0:
             return []
 
         all_to_close = await self.scheduler.workers_to_close(
@@ -316,7 +322,7 @@ class HeterogeneousAdaptive(HeterogeneousAdaptiveCore):
         )
 
         worker_set = set(worker_list)
-        return [w for w in all_to_close if w in worker_set]
+        return [w for w in all_to_close if w in worker_set][:excess]
 
     @log_errors
     async def scale_down(self, workers):

@@ -1,4 +1,3 @@
-from collections import defaultdict
 import os
 import math
 import re
@@ -48,7 +47,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         **job_kwargs
     ):
         self.status = Status.created
-        self.adapt_config = defaultdict(int)
+        self.adapt_config = {}
 
         default_job_cls = getattr(type(self), "job_cls", None)
         self.job_cls = default_job_cls
@@ -153,6 +152,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 self._spec_workers[type_name] = {"cls": spec_job_cls, "options": opts}
 
             self._type_counters = {k: 0 for k in self._spec_workers}
+            self._processes_cache = {}
 
             if n_workers:
                 self.scale(n_workers)
@@ -221,8 +221,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
 
                 scale_dict = {}
                 for wtype, template in self._spec_workers.items():
-                    opts = template.get("options", {}) or {}
-                    worker_processes = opts.get("processes", 1)
+                    worker_processes = self._worker_processes(wtype)
                     jobs_for_type = int(math.ceil(desired_procs / worker_processes))
                     scale_dict[wtype] = jobs_for_type
 
@@ -234,44 +233,87 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
     def adapt(self, min_max_per_worker: dict, **kwargs): ...
 
     @overload
-    def adapt(self, minimum_jobs: int = None, maximum_jobs: int = None, **kwargs): ...
-    
+    def adapt(self, minimum_jobs: int, maximum_jobs: int, **kwargs): ...
 
+    @overload
     def adapt(
-        self, *args, **kwargs
-    ):
-        scale = lambda v, p: None if v is None else int(v) * p
+        self,
+        *,
+        minimum_jobs: int | None = None,
+        maximum_jobs: int | None = None,
+        **kwargs,
+    ): ...
 
-        per_worker = (
-            args[0]
-            if args and isinstance(args[0], dict)
-            else kwargs.pop("min_max_per_worker", None)
+
+    def adapt(self, *args, **kwargs):
+        def scale_by_processes(value, processes):
+            return None if value is None else int(value) * processes
+
+        per_worker = kwargs.pop("min_max_per_worker", None)
+        if args and isinstance(args[0], dict):
+            per_worker = args[0]
+            args = args[1:]
+
+
+        minimum_jobs = kwargs.pop("minimum_jobs", None)
+        maximum_jobs = kwargs.pop("maximum_jobs", None)
+
+        msg = (
+            "adapt() accepts either a per-worker mapping or "
+            "minimum_jobs/maximum_jobs, not both."
         )
 
-        if per_worker is None:
-            if args and len(args) >= 2:
-                min_j, max_j = args[0], args[1]
-            else:
-                min_j = kwargs.pop("minimum_jobs", None)
-                max_j = kwargs.pop("maximum_jobs", None)
-                
-        if per_worker is not None:
-            for wtype, (min_v, max_v) in per_worker.items():
-                if wtype not in (self._spec_workers or {}):
-                    raise KeyError(f"Unknown worker type: {wtype}")
-                
-                procs = self._spec_workers[wtype].get("options", {}).get("processes", 1)
-                self.adapt_config[wtype] = (scale(min_v, procs), scale(max_v, procs))
-        else:
-            if min_j is None and max_j is None:
-                #TODO: Check if None is a valid options for dask_jobqueue
-                raise TypeError("adapt() requires min/max or per-worker mapping")
-            
-            for wtype in (self._spec_workers or {}):
-                procs = self._spec_workers[wtype].get("options", {}).get("processes", 1)
-                self.adapt_config[wtype] = (scale(min_j, procs), scale(max_j, procs))
+        if args:
+            if len(args) != 2 or any(v is not None for v in (per_worker, minimum_jobs, maximum_jobs)):
+                raise TypeError(msg)
+            minimum_jobs, maximum_jobs = args
 
-        kwargs["adapt_config"] = dict(self.adapt_config)
+        elif per_worker is not None and (minimum_jobs is not None or maximum_jobs is not None):
+            raise TypeError(msg)
+
+
+        adapt_config: dict[str, tuple[int | None, int | None]] = {}
+
+        if per_worker is not None:
+            unknown = set(per_worker) - set(self._spec_workers)
+            if unknown:
+                raise KeyError(f"Unknown worker type(s): {sorted(unknown)}")
+
+            missing = set(self._spec_workers) - set(per_worker)
+            if missing:
+                raise KeyError(
+                    f"Missing min/max bounds for worker type(s): {sorted(missing)}. "
+                    "Specify bounds for every worker type."
+                )
+
+            for wtype, bounds in per_worker.items():
+                try:
+                    min_v, max_v = bounds
+                except (TypeError, ValueError):
+                    raise TypeError(
+                        f"Bounds for worker type '{wtype}' must be a (min, max) "
+                        f"pair, got {bounds!r}"
+                    ) from None
+
+                processes = self._worker_processes(wtype)
+                adapt_config[wtype] = (
+                    scale_by_processes(min_v, processes),
+                    scale_by_processes(max_v, processes),
+                )
+        else:
+            if minimum_jobs is None and maximum_jobs is None:
+                raise TypeError("adapt() requires min/max or per-worker mapping")
+
+            for wtype in self._spec_workers:
+                processes = self._worker_processes(wtype)
+                adapt_config[wtype] = (
+                    scale_by_processes(minimum_jobs, processes),
+                    scale_by_processes(maximum_jobs, processes),
+                )
+
+        self.adapt_config = adapt_config
+        kwargs["adapt_config"] = self.adapt_config
+
         from dask_heterogeneous.adaptive import HeterogeneousAdaptive
         return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
 
@@ -342,6 +384,15 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         """Create a representative Job using the first worker-type's config."""
         first_type = next(iter(self._spec_workers))
         return self._make_dummy_job(first_type)
+
+    def _worker_processes(self, wtype: str) -> int:
+        if wtype not in self._processes_cache:
+            opts = self._spec_workers[wtype].get("options", {}) or {}
+            processes = opts.get("processes")
+            if processes is None:
+                processes = self._make_dummy_job(wtype).worker_processes
+            self._processes_cache[wtype] = int(processes)
+        return self._processes_cache[wtype]
 
     @property
     def job_header(self) -> dict[str, str]:

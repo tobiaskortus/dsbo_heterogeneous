@@ -119,6 +119,7 @@ class HeterogeneousScheduler(Scheduler):
         queue_groups = self.queue_groups
         unrunnable_groups = self.unrunnable_groups
         total_occupancy_groups = self.total_per_worker_occupancy
+        closable = None
 
         for worker_type in worker_types:
             workers = worker_groups.get(worker_type, {})
@@ -147,8 +148,13 @@ class HeterogeneousScheduler(Scheduler):
                 cpu = min(tasks_ready, cpu)
 
             if worker_groups.get(worker_type, None):
-                nthreads = sum(ws.nthreads for ws in worker_groups[worker_type].values())
-                cpu = math.ceil(cpu / nthreads * len(worker_groups[worker_type]))
+                capacity = sum(
+                    min(ws.nthreads, int(ws.resources.get(worker_type, 0)))
+                    for ws in worker_groups[worker_type].values()
+                )
+
+                if capacity:
+                    cpu = math.ceil(cpu / capacity * len(worker_groups[worker_type]))
 
             if ((queue_groups.get(worker_type, None) or unrunnable_groups.get(worker_type, None)) 
                 and not workers):
@@ -160,11 +166,11 @@ class HeterogeneousScheduler(Scheduler):
             if used > 0.6 * limit and limit > 0:
                 memory = 2 * len(workers)
             target = max(memory, cpu)
-            if target >= len(workers):
-                targets[worker_type] = target
-            else:
-                to_close = self.workers_to_close()
-                targets[worker_type] = len(workers) - len(to_close)
+            if target < len(workers):
+                if closable is None:
+                    closable = set(self.workers_to_close(attribute="name"))
+                target = len(workers) - sum(ws.name in closable for ws in workers.values())
+            targets[worker_type] = target
 
         return targets
 
