@@ -18,7 +18,7 @@ def cluster():
         "gpu": {"cores": 1, "memory": "1GB", "processes": 1, "resources": {"gpu": 1}},
     }
     with patch.object(HeterogeneousLocalCluster, "_correct_state", _noop_correct_state):
-        instance = HeterogeneousLocalCluster(spec, n_workers=0, silence_logs="error")
+        instance = HeterogeneousLocalCluster(spec, silence_logs="error")
     yield instance
     instance.close()
 
