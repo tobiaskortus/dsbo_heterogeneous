@@ -1,9 +1,14 @@
+import itertools
 import os
 import math
 import re
 from typing import overload
+import dask
+from distributed.deploy.local import nprocesses_nthreads
 from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
+from dask_jobqueue.local import LocalJob
+from dask_jobqueue.slurm import SLURMJob
 from dask_heterogeneous.scheduler import HeterogeneousScheduler
 from dask_heterogeneous.utils import worker_type_from_name
 
@@ -75,8 +80,31 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 'cluster = {0}(..., host="your-host")'.format(self.__class__.__name__)
             )
 
+        if spec is None:
+            raise ValueError("spec parameter is required for HeterogeneousJobQueueCluster")
+
+        if n_workers is not None:
+            raise ValueError("Scaling HeterogeneousJobQueueCluster via n_workers is not supported.")
+
+        config_name = job_kwargs.get("config_name")
+        if config_name is None:
+            if self.job_cls is not None:
+                config_name = self.job_cls.default_config_name()
+            else:
+                job_classes = {v["cls"] for v in spec.values()}
+                queue_classes = {cls for cls in job_classes if not issubclass(cls, LocalJob)}
+                if len(queue_classes) == 1:
+                    config_name = next(iter(queue_classes)).default_config_name()
+                elif len(job_classes) == 1:
+                    config_name = next(iter(job_classes)).default_config_name()
+
+        if interface is None and config_name is not None:
+            interface = dask.config.get(f"jobqueue.{config_name}.interface")
         if scheduler_options is None:
-            scheduler_options = {}
+            scheduler_options = (
+                dask.config.get(f"jobqueue.{config_name}.scheduler-options", {})
+                if config_name is not None else {}
+            )
 
         if protocol is None and security is not None:
             protocol = "tls://"
@@ -101,11 +129,10 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         if "host" not in scheduler_options and "interface" not in scheduler_options:
             scheduler_options["interface"] = interface
 
-        scheduler = {
-            "cls": scheduler_cls,
-            "options": scheduler_options,
-        }
-
+        if shared_temp_directory is None and config_name is not None:
+            shared_temp_directory = dask.config.get(
+                f"jobqueue.{config_name}.shared-temp-directory"
+            )
         self.shared_temp_directory = shared_temp_directory
 
         job_kwargs["interface"] = interface
@@ -114,51 +141,36 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
 
         self._job_kwargs = job_kwargs
 
-        if spec is not None:
-            cluster_name = name.replace("-", "_") if name is not None else f"jobqueue_{os.getpid()}"
+        cluster_name = name.replace("-", "_") if name is not None else f"jobqueue_{os.getpid()}"
+        worker_name_prefix = f"{cluster_name}-"
 
-            SpecCluster.__init__(
-                self,
-                scheduler=scheduler,
-                workers={},
-                loop=loop,
-                security=security,
-                silence_logs=silence_logs,
-                asynchronous=asynchronous,
-                name=cluster_name,
-            )
+        self._spec_workers = {}
+        self._processes_cache = {}
+        for type_name, job_opts in spec.items():
+            entry = self._build_spec_worker(type_name, job_opts)
+            if entry is not None:
+                self._spec_workers[type_name] = entry
 
-            try:
-                self._name = cluster_name
-            except Exception:
-                pass
+        self._type_counters = {k: 0 for k in self._spec_workers}
+        for type_name in self._spec_workers:
+            self._make_dummy_job(type_name)
 
-            self._spec_workers = {}
-            for type_name, job_opts in spec.items():
-                if job_opts is {}:
-                    continue
+        scheduler_options = dict(scheduler_options or {})
+        if isinstance(scheduler_cls, type) and issubclass(scheduler_cls, HeterogeneousScheduler):
+            scheduler_options["spec_workers"] = self._spec_workers
+            scheduler_options["worker_name_prefix"] = worker_name_prefix
+        scheduler = {"cls": scheduler_cls, "options": scheduler_options}
 
-                spec_job_cls = job_opts.get("cls", None) or self.job_cls
-                if spec_job_cls is None:
-                    raise ValueError(
-                        f"Worker type '{type_name}' has no 'spec' key and no cluster-level "
-                        "job_cls is set. Add a 'spec' key to this entry or pass job_cls."
-                    )
-                job_opts.pop("cls", None)
-                opts = dict(self._job_kwargs or {})
-                opts.update(job_opts)
-                self._resources_to_worker_extra_args(opts)
-                opts["config_name"] = spec_job_cls.default_config_name()
-                self._spec_workers[type_name] = {"cls": spec_job_cls, "options": opts}
-
-            self._type_counters = {k: 0 for k in self._spec_workers}
-            self._processes_cache = {}
-
-            if n_workers:
-                self.scale(n_workers)
-            return
-        
-        raise Exception("spec parameter is required for HeterogeneousJobQueueCluster")
+        SpecCluster.__init__(
+            self,
+            scheduler=scheduler,
+            workers={},
+            loop=loop,
+            security=security,
+            silence_logs=silence_logs,
+            asynchronous=asynchronous,
+            name=cluster_name,
+        )
 
     
     @overload
@@ -174,40 +186,10 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 "This cluster was not initialized with a heterogeneous `spec`, so "
                 "cannot be scaled using a dict. Please use an integer value for `n`."
             )
-        
+
         if hasattr(self, "_spec_workers") and self._spec_workers is not None:
             if isinstance(n, dict):
-                desired = {}
-
-                current = dict(self.worker_spec or {})
-
-                for wtype, requested in n.items():
-                    if wtype not in self._spec_workers:
-                        raise KeyError(f"Unknown worker type: {wtype}")
-                    template = self._spec_workers[wtype]
-
-                    for i in range(int(requested)):
-                        name = f"{self._name}-{wtype}-{i}"
-                        if name in current:
-                            desired[name] = current[name]
-                        else:
-                            entry = {"cls": template["cls"], "options": dict(template["options"])}
-                            if "group" in template:
-                                entry["group"] = list(template["group"])
-                            desired[name] = entry
-
-                requested_types = set(n)
-
-                for name, spec_entry in current.items():
-                    wtype = worker_type_from_name(name, f"{self._name}-")
-                    if wtype is not None and wtype in requested_types:
-                        continue
-
-                    if name not in desired:
-                        desired[name] = spec_entry
-
-                self.worker_spec = desired
-                self.loop.add_callback(self._correct_state)
+                self._scale_dict(n)
                 return
 
             if n == 0:
@@ -218,9 +200,13 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         if n is not None:
             if hasattr(self, "_spec_workers") and self._spec_workers:
                 desired_procs = int(n)
+                if desired_procs < 0:
+                    raise ValueError("Worker count must be nonnegative")
+                if len(self._spec_workers) != 1:
+                    raise ValueError("Use per-type counts with scale({...}) for a heterogeneous cluster")
 
                 scale_dict = {}
-                for wtype, template in self._spec_workers.items():
+                for wtype in self._spec_workers:
                     worker_processes = self._worker_processes(wtype)
                     jobs_for_type = int(math.ceil(desired_procs / worker_processes))
                     scale_dict[wtype] = jobs_for_type
@@ -228,6 +214,72 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                 return self.scale(scale_dict)
 
         raise Exception("Invalid scale config")
+
+    @staticmethod
+    def _worker_index(name: str) -> int:
+        """Return the numeric job index encoded in a worker name."""
+        match = re.search(r"-(\d+)(?:-\d+)?$", name)
+        return int(match.group(1)) if match else 0
+
+    def _scale_dict(self, n: dict) -> None:
+        """Scale per-type job counts, reusing existing allocations."""
+        prefix = f"{self._name}-"
+        current = dict(self.worker_spec or {})
+        observed = {info["name"] for info in self.scheduler_info["workers"].values()}
+
+        for wtype in n:
+            if wtype not in self._spec_workers:
+                raise KeyError(f"Unknown worker type: {wtype}")
+
+        desired = {
+            name: entry
+            for name, entry in current.items()
+            if worker_type_from_name(name, prefix) not in n
+        }
+
+        for wtype, requested in n.items():
+            requested = int(requested)
+            if requested < 0:
+                raise ValueError("Job count must be nonnegative")
+            template = self._spec_workers[wtype]
+            processes = self._worker_processes(wtype)
+
+            def is_running(name: str) -> bool:
+                if name in observed:
+                    return True
+                return processes > 1 and any(w.startswith(name + "-") for w in observed)
+
+            existing = sorted(
+                (name for name in current if worker_type_from_name(name, prefix) == wtype),
+                key=self._worker_index,
+            )
+
+            kept = sorted(existing,key=lambda name: (not is_running(name), self._worker_index(name)))[:requested]
+            for name in kept:
+                desired[name] = current[name]
+
+            used = {self._worker_index(name) for name in kept}
+            free = (i for i in range(requested) if i not in used)
+            for index in itertools.islice(free, requested - len(kept)):
+                entry = {"cls": template["cls"], "options": dict(template["options"])}
+                if "group" in template:
+                    entry["group"] = list(template["group"])
+                desired[f"{self._name}-{wtype}-{index}"] = entry
+
+        self.worker_spec = desired
+        self.loop.add_callback(self._correct_state)
+
+    @property
+    def plan(self):
+        return set(self.worker_spec or {})
+
+    @property
+    def requested(self):
+        return set(self.workers or {})
+
+    @property
+    def observed(self):
+        return {d["name"] for d in self.scheduler_info["workers"].values()}
         
     @overload
     def adapt(self, min_max_per_worker: dict, **kwargs): ...
@@ -253,7 +305,6 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         if args and isinstance(args[0], dict):
             per_worker = args[0]
             args = args[1:]
-
 
         minimum_jobs = kwargs.pop("minimum_jobs", None)
         maximum_jobs = kwargs.pop("maximum_jobs", None)
@@ -296,10 +347,8 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
                     ) from None
 
                 processes = self._worker_processes(wtype)
-                adapt_config[wtype] = (
-                    scale_by_processes(min_v, processes),
-                    scale_by_processes(max_v, processes),
-                )
+                adapt_config[wtype] = (scale_by_processes(min_v, processes),
+                                        scale_by_processes(max_v, processes))
         else:
             if minimum_jobs is None and maximum_jobs is None:
                 raise TypeError("adapt() requires min/max or per-worker mapping")
@@ -355,6 +404,67 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         return opts
 
 
+    def _resolve_processes(self, opts: dict) -> int:
+        """Resolve the number of processes for a worker type from ``opts``.
+
+        Falls back to the jobqueue config and finally derives the process count
+        from the requested core count. Writes the derived value back to ``opts``.
+        """
+        processes = opts.get("processes")
+        if processes is None:
+            processes = dask.config.get(f"jobqueue.{opts['config_name']}.processes")
+        if processes is None:
+            cores = opts.get("cores")
+            if cores is None:
+                cores = dask.config.get(f"jobqueue.{opts['config_name']}.cores")
+            processes, _ = nprocesses_nthreads(cores)
+            opts["processes"] = processes
+        return int(processes)
+
+
+    def _reserve_cores_for_task(self, opts: dict, resource_slots, processes: int, spec_job_cls: type) -> None:
+        """Reduce advertised Dask cores when a type resource caps concurrency."""
+        if resource_slots is None or opts.get("cores") is None:
+            return
+        cores = int(opts["cores"])
+        effective_cores = min(cores, math.ceil(resource_slots) * processes)
+        if 0 < effective_cores < cores:
+            if issubclass(spec_job_cls, SLURMJob):
+                opts.setdefault("job_cpu", cores)
+            opts["cores"] = effective_cores
+
+
+    def _build_spec_worker(self, type_name: str, job_opts: dict) -> dict | None:
+        """Build the SpecCluster worker entry for a single worker type."""
+        if not type_name or re.search(r"(?:^|-)\d+$", type_name):
+            raise ValueError(f"Worker type {type_name!r} cannot end in a numeric job-index suffix")
+        if not job_opts:
+            return None
+
+        spec_job_cls = job_opts.get("cls") or self.job_cls
+        if spec_job_cls is None:
+            raise ValueError(
+                f"Worker type '{type_name}' has no 'spec' key and no cluster-level "
+                "job_cls is set. Add a 'spec' key to this entry or pass job_cls."
+            )
+
+        opts = dict(self._job_kwargs or {})
+        opts.update({k: v for k, v in job_opts.items() if k != "cls"})
+        resource_slots = (opts.get("resources") or {}).get(type_name)
+        self._resources_to_worker_extra_args(opts)
+        if opts.get("config_name") is None:
+            opts["config_name"] = spec_job_cls.default_config_name()
+
+        processes = self._resolve_processes(opts)
+        self._reserve_cores_for_task(opts, resource_slots, processes, spec_job_cls)
+
+        entry = {"cls": spec_job_cls, "options": opts}
+        if processes > 1:
+            entry["group"] = [f"-{i}" for i in range(processes)]
+        self._processes_cache[type_name] = processes
+        return entry
+
+
     def _make_dummy_job(self, type_name: str):
         """Instantiate a dummy Job for a specific worker type."""
         try:
@@ -386,12 +496,6 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         return self._make_dummy_job(first_type)
 
     def _worker_processes(self, wtype: str) -> int:
-        if wtype not in self._processes_cache:
-            opts = self._spec_workers[wtype].get("options", {}) or {}
-            processes = opts.get("processes")
-            if processes is None:
-                processes = self._make_dummy_job(wtype).worker_processes
-            self._processes_cache[wtype] = int(processes)
         return self._processes_cache[wtype]
 
     @property
