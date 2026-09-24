@@ -28,3 +28,7 @@ Issues = "https://github.com/tobiaskortus/dask_heterogeneous/issues"
 
 [tool.setuptools]
 packages = ["dask_heterogeneous"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -20,7 +20,7 @@ class HybridCluster(HeterogeneousJobQueueCluster):
     def __init__(
         self,
         spec,
-        n_workers=0,
+        n_workers=None,
         loop=None,
         security=None,
         shared_temp_directory=None,

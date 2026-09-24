@@ -84,7 +84,7 @@ class WindowsCompatibleLocalJob(LocalJob):
 class HeterogeneousLocalCluster(HeterogeneousJobQueueCluster):
     job_cls = WindowsCompatibleLocalJob
 
-    def __init__(self, spec, n_workers=0, loop=None, security=None, shared_temp_directory=None,
+    def __init__(self, spec, n_workers=None, loop=None, security=None, shared_temp_directory=None,
                  silence_logs="error", name=None, asynchronous=False, scheduler_options=None,
                  scheduler_cls=HeterogeneousScheduler, **kwargs):
         super().__init__(
