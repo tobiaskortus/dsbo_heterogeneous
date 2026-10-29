@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from dask_heterogeneous.local import HeterogeneousLocalCluster
+from dsbo_heterogeneous.local import HeterogeneousLocalCluster
 
 
 @pytest.fixture

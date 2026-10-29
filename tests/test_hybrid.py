@@ -4,7 +4,7 @@ from dask_jobqueue.local import LocalJob
 from dask_jobqueue.slurm import SLURMJob
 from dask_jobqueue.sge import SGEJob
 
-from dask_heterogeneous.hybrid import assert_no_mixed_jobqueue, assert_all_specs_contain_cls, HybridCluster
+from dsbo_heterogeneous.hybrid import assert_no_mixed_jobqueue, assert_all_specs_contain_cls, HybridCluster
 
 def test_mixed_jobqueue():
     with pytest.raises(AssertionError, match="The spec contains mixed job queues"):

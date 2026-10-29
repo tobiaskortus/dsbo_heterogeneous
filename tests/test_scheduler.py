@@ -5,7 +5,7 @@ from distributed import Client
 from unittest.mock import patch
 from distributed.deploy.spec import SpecCluster
 
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
 
 
 def function(value):

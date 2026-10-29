@@ -1,6 +1,6 @@
 from dask_jobqueue.slurm import SLURMJob
-from dask_heterogeneous.core import HeterogeneousJobQueueCluster
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.core import HeterogeneousJobQueueCluster
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
 
 class HeterogeneousSlurmCluster(HeterogeneousJobQueueCluster):
     job_cls = SLURMJob

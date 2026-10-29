@@ -1,8 +1,8 @@
 import dask
-from dask_heterogeneous.local import HeterogeneousLocalCluster
+from dsbo_heterogeneous.local import HeterogeneousLocalCluster
 from dask.distributed import Client
 
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
 
 spec = {
     "small": {"cores": 1, "memory": "1GB", "processes": 1, "resources": {"small": 1}},

@@ -4,8 +4,8 @@ import signal
 import sys
 
 from dask_jobqueue.local import LocalJob
-from dask_heterogeneous.core import HeterogeneousJobQueueCluster
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.core import HeterogeneousJobQueueCluster
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
 
 
 class WindowsCompatibleLocalJob(LocalJob):

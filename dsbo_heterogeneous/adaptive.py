@@ -16,10 +16,10 @@ from distributed.protocol import pickle
 from distributed.compatibility import PeriodicCallback
 from distributed.deploy.adaptive_core import AdaptiveCore
 from distributed.deploy.adaptive import AdaptiveStateState
-from dask_heterogeneous.utils import worker_type_from_name
+from dsbo_heterogeneous.utils import worker_type_from_name
 
 if TYPE_CHECKING:
-    from dask_heterogeneous.core import HeterogeneousJobQueueCluster
+    from dsbo_heterogeneous.core import HeterogeneousJobQueueCluster
 
 logger = logging.getLogger(__name__)
 

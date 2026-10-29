@@ -9,8 +9,8 @@ from distributed.deploy.spec import SpecCluster
 from dask_jobqueue.core import cluster_parameters, Job, Status, Security, JobQueueCluster
 from dask_jobqueue.local import LocalJob
 from dask_jobqueue.slurm import SLURMJob
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
-from dask_heterogeneous.utils import worker_type_from_name
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.utils import worker_type_from_name
 
 class HeterogeneousJobQueueCluster(JobQueueCluster):
     __doc__ = """ Deploy Dask on a Job queuing system
@@ -363,7 +363,7 @@ class HeterogeneousJobQueueCluster(JobQueueCluster):
         self.adapt_config = adapt_config
         kwargs["adapt_config"] = self.adapt_config
 
-        from dask_heterogeneous.adaptive import HeterogeneousAdaptive
+        from dsbo_heterogeneous.adaptive import HeterogeneousAdaptive
         return super().adapt(Adaptive=HeterogeneousAdaptive, **kwargs)
 
     def add_worker(self, type_name: str, options: dict | None = None):

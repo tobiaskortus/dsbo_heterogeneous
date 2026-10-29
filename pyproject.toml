@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dask_heterogeneous"
+name = "dsbo_heterogeneous"
 version = "0.1.0"
 description = "A small library that extends Dask/Dask-Jobqueue to run heterogeneous worker pools in a single dask cluster."
 readme = "README.md"
@@ -23,11 +23,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tobiaskortus/dask_heterogeneous"
-Issues = "https://github.com/tobiaskortus/dask_heterogeneous/issues"
+Homepage = "https://github.com/tobiaskortus/dsbo_heterogeneous"
+Issues = "https://github.com/tobiaskortus/dsbo_heterogeneous/issues"
 
 [tool.setuptools]
-packages = ["dask_heterogeneous"]
+packages = ["dsbo_heterogeneous"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

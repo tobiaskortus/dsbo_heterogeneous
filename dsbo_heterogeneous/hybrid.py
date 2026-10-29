@@ -1,7 +1,7 @@
 from dask_jobqueue.local import LocalJob
 
-from dask_heterogeneous.scheduler import HeterogeneousScheduler
-from dask_heterogeneous.core import HeterogeneousJobQueueCluster
+from dsbo_heterogeneous.scheduler import HeterogeneousScheduler
+from dsbo_heterogeneous.core import HeterogeneousJobQueueCluster
 
 
 def assert_no_mixed_jobqueue(spec):

@@ -9,7 +9,7 @@ from distributed import Scheduler
 from distributed.scheduler import WorkerState
 from distributed.protocol import pickle
 
-from dask_heterogeneous.utils import job_name_from_worker, worker_type_from_name
+from dsbo_heterogeneous.utils import job_name_from_worker, worker_type_from_name
 
 logger = logging.getLogger(__name__)
 

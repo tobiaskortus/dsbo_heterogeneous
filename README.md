@@ -1,10 +1,10 @@
-# Dask-Heterogeneous
+# DSBO-Heterogeneous
 
-dask_heteogeneous provides a small library that extends Dask/Dask-Jobqueue to run heterogeneous worker pools in a single dask cluster. The primary goal is simple, predictable per-type scaling plus runtime registration that cleanly integrates with the existing Cluter types (Local, SLURM, ...) provided by dask_jobqueue.
+dsbo_heterogeneous provides a small library that extends Dask/Dask-Jobqueue to run heterogeneous worker pools in a single dask cluster. The primary goal is simple, predictable per-type scaling plus runtime registration that cleanly integrates with the existing Cluter types (Local, SLURM, ...) provided by dask_jobqueue.
 
 
 > [!WARNING]
-> dask_heterogeneous is a prototype/early stage implementation for heterogeneous cluster creation within dask-jobqueue! If you notice any issues or have any suggestions for improvements, please write up a GitHub issue detailing the problem or proposal. We also recommend “watching” the GitHub repository to keep track of new releases, and upgrading promptly when they occur.
+> dsbo_heterogeneous is a prototype/early stage implementation for heterogeneous cluster creation within dask-jobqueue! If you notice any issues or have any suggestions for improvements, please write up a GitHub issue detailing the problem or proposal. We also recommend “watching” the GitHub repository to keep track of new releases, and upgrading promptly when they occur.
 
 > [!WARNING]
 > User configurations (yaml files, environment variables, etc.) are currently removed in favor of simplicity and clarity of heterogeneous and hybrid cluster definitions.
@@ -12,14 +12,14 @@ dask_heteogeneous provides a small library that extends Dask/Dask-Jobqueue to ru
 ## Installation
 
 ```sh
-pip install git+git@github.com:tobiaskortus/dask_heterogeneous.git
+pip install git+git@github.com:tobiaskortus/dsbo_heterogeneous.git
 ```
 
 
 ## Usage 
 
 ```py
-from dask_heterogeneous.slurm import HeterogeneousSlurmCluster
+from dsbo_heterogeneous.slurm import HeterogeneousSlurmCluster
 from dask.distributed import Client
 
 
@@ -35,7 +35,7 @@ client = Client(cluster)
 ```
 
 ```py
-from dask_heterogeneous.mixed import MixedHeterogeneousCluster
+from dsbo_heterogeneous.mixed import MixedHeterogeneousCluster
 from dask_jobqueue.local import LocalJob
 from dask_jobqueue.slurm import SLURMJob
 from dask.distributed import Client
