@@ -56,3 +56,8 @@ client = Client(cluster)
 
 ```
 
+## License and Third-Party Code
+
+This project includes code adapted from Dask Distributed and
+Dask-Jobqueue, extending the base libraries functionality for heterogeneous cluster configurations. The applicable upstream copyright notices, BSD-3-Clause terms,
+and disclaimers are retained in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
